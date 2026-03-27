@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh">
+<img id="img" style="max-width:100%;max-height:100%">
+<script>
+var img=document.getElementById('img');
+var last=null;
+
+function poll(){
+ fetch('/api/state?t='+Date.now(), {cache:'no-store'}).then(function(r){return r.json()}).then(function(s){
+  if(s.selected_guest_code!==last){
+   last=s.selected_guest_code || '000';
+   img.src='cards/' + last + '.jpg';
+  }
+ });
+}
+setInterval(poll,500);
+poll();
+</script>
+</body>
+</html>

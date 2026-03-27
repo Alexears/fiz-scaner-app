@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Сканер (ручной)</title>
+<style>
+body{background:#0f1115;color:#fff;font-family:Arial,sans-serif;margin:0}
+.wrap{max-width:760px;margin:auto;padding:20px}
+.block{background:#151922;padding:20px;border-radius:16px;margin-bottom:16px;border:1px solid #2b313b}
+h1,h2,h3{margin:0 0 12px}
+input{width:100%;padding:16px;font-size:24px;background:#0f1115;color:#fff;border:1px solid #333;border-radius:12px}
+button{padding:12px 16px;margin-top:10px;margin-right:8px;border-radius:12px;background:#1a1f27;color:#fff;border:1px solid #333;cursor:pointer}
+button:hover{background:#222834}
+img{max-width:100%;margin-top:10px;border-radius:12px;border:1px solid #2b313b;background:#0f1115}
+.muted{color:#9ca3af;line-height:1.45}
+.ok{color:#7ee787;margin-top:10px}
+.warn{color:#f0b429;margin-top:10px}
+.error{color:#ff8a8a;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="block">
+<h1>Сканер</h1>
+<div class="muted">Ручной сканер работает как клавиатура. Сканируйте браслет в поле ниже.</div>
+<input id="scan-input" autofocus placeholder="Сканируйте браслет">
+<div id="status" class="muted" style="margin-top:10px">Ожидание сканирования…</div>
+</div>
+
+<div class="block">
+<h3>Карточка</h3>
+<div id="card" class="muted">После сканирования карточка появится здесь.</div>
+<button id="show">Вывести на экран</button>
+<button id="clear">Очистить экран</button>
+</div>
+
+</div>
+
+<script>
+var input = document.getElementById('scan-input');
+var card = document.getElementById('card');
+var statusEl = document.getElementById('status');
+var currentCode = null;
+var lastAcceptedCode = null;
+var lastAcceptedAt = 0;
+var DUPLICATE_LOCK_MS = 2500;
+
+function ensureFocus() {
+  if (document.activeElement !== input) input.focus();
+}
+
+window.addEventListener('load', ensureFocus);
+document.addEventListener('click', ensureFocus);
+
+function beep() {
+  try {
+    var AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    var ctx = new AudioContextCtor();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 1046;
+    gain.gain.value = 0.03;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    setTimeout(function() {
+      osc.stop();
+      if (ctx.close) ctx.close();
+    }, 90);
+  } catch (e) {}
+}
+
+function renderCard(code) {
+  card.innerHTML = '<div><strong>Код: ' + code + '</strong></div>' +
+                   '<img src="cards/' + code + '.jpg" alt="Карточка ' + code + '">' +
+                   '<div id="img-missing" class="muted"></div>';
+  var img = card.querySelector('img');
+  img.onerror = function () {
+    this.style.display = 'none';
+    var miss = document.getElementById('img-missing');
+    if (miss) miss.textContent = 'Картинка cards/' + code + '.jpg не найдена.';
+  };
+}
+
+input.addEventListener('keydown', function(e) {
+  if (e.key !== "Enter") return;
+
+  var val = input.value.trim();
+  input.value = '';
+  ensureFocus();
+
+  if (!/^[0-9]{1,3}$/.test(val)) {
+    statusEl.className = 'error';
+    statusEl.textContent = 'Допустимы только коды от 001 до 999.';
+    return;
+  }
+
+  var code = val.padStart(3, '0');
+  if (code < '001' || code > '999') {
+    statusEl.className = 'error';
+    statusEl.textContent = 'Допустимы только коды от 001 до 999.';
+    return;
+  }
+
+  var now = Date.now();
+  if (lastAcceptedCode === code && (now - lastAcceptedAt) < DUPLICATE_LOCK_MS) {
+    statusEl.className = 'warn';
+    statusEl.textContent = 'Повторный скан ' + code + ' заблокирован на несколько секунд.';
+    return;
+  }
+
+  lastAcceptedCode = code;
+  lastAcceptedAt = now;
+  currentCode = code;
+
+  fetch('/api/scan', {
+    method:'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({code: code})
+  }).then(function() {
+    renderCard(code);
+    statusEl.className = 'ok';
+    statusEl.textContent = 'Скан: ' + code;
+    beep();
+  }).catch(function() {
+    statusEl.className = 'error';
+    statusEl.textContent = 'Не удалось отправить скан на сервер.';
+  });
+});
+
+document.getElementById('show').onclick = function() {
+  if (!currentCode) return;
+  fetch('/api/select', {
+    method:'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({code: currentCode})
+  }).then(function() {
+    statusEl.className = 'ok';
+    statusEl.textContent = 'Карточка ' + currentCode + ' отправлена на внешний экран.';
+    ensureFocus();
+  });
+};
+
+document.getElementById('clear').onclick = function() {
+  fetch('/api/select', {
+    method:'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({code:'000'})
+  }).then(function() {
+    statusEl.className = 'muted';
+    statusEl.textContent = 'На внешний экран отправлена заглушка 000.';
+    ensureFocus();
+  });
+};
+</script>
+
+</body>
+</html>
